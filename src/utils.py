@@ -9,8 +9,13 @@ from supabase import create_client, Client
 from urllib.parse import urlparse
 import openai
 
+print("DEBUG: Initializing OpenAI client...")
 # Load OpenAI API key for embeddings
 openai.api_key = os.getenv("OPENAI_API_KEY")
+if openai.api_key:
+    print("DEBUG: OpenAI API key loaded.")
+else:
+    print("DEBUG: WARNING - OpenAI API key not found in environment variables.")
 
 def get_supabase_client() -> Client:
     """
@@ -19,13 +24,18 @@ def get_supabase_client() -> Client:
     Returns:
         Supabase client instance
     """
+    print("DEBUG: get_supabase_client called.")
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_SERVICE_KEY")
     
     if not url or not key:
+        print(f"DEBUG: ERROR - SUPABASE_URL or SUPABASE_SERVICE_KEY not set. URL: {url}, Key Set: {bool(key)}")
         raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in environment variables")
     
-    return create_client(url, key)
+    print(f"DEBUG: Creating Supabase client with URL: {url} and Service Key (set: {bool(key)})")
+    client = create_client(url, key)
+    print("DEBUG: Supabase client created.")
+    return client
 
 def create_embeddings_batch(texts: List[str]) -> List[List[float]]:
     """

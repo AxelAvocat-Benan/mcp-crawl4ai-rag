@@ -48,27 +48,37 @@ async def crawl4ai_lifespan(server: FastMCP) -> AsyncIterator[Crawl4AIContext]:
     Yields:
         Crawl4AIContext: The context containing the Crawl4AI crawler and Supabase client
     """
+    print("DEBUG: crawl4ai_lifespan started.")
     # Create browser configuration
     browser_config = BrowserConfig(
         headless=True,
         verbose=False
     )
     
+    print("DEBUG: Initializing AsyncWebCrawler...")
     # Initialize the crawler
     crawler = AsyncWebCrawler(config=browser_config)
     await crawler.__aenter__()
+    print("DEBUG: AsyncWebCrawler initialized.")
     
+    print("DEBUG: Getting Supabase client in lifespan...")
     # Initialize Supabase client
     supabase_client = get_supabase_client()
+    print("DEBUG: Supabase client obtained in lifespan.")
     
     try:
+        print("DEBUG: Yielding Crawl4AIContext.")
         yield Crawl4AIContext(
             crawler=crawler,
             supabase_client=supabase_client
         )
+        print("DEBUG: Crawl4AIContext yielded.")
     finally:
+        print("DEBUG: Cleaning up AsyncWebCrawler in lifespan finally block.")
         # Clean up the crawler
         await crawler.__aexit__(None, None, None)
+        print("DEBUG: AsyncWebCrawler cleaned up in lifespan.")
+    print("DEBUG: crawl4ai_lifespan finished.")
 
 # Initialize FastMCP server
 mcp = FastMCP(
@@ -225,13 +235,13 @@ async def crawl_single_page(ctx: Context, url: str) -> str:
             contents = []
             metadatas = []
             
-            for i, chunk in enumerate(chunks):
+            for i, chunk_item in enumerate(chunks): # Renamed chunk to chunk_item to avoid conflict
                 urls.append(url)
                 chunk_numbers.append(i)
-                contents.append(chunk)
+                contents.append(chunk_item)
                 
                 # Extract metadata
-                meta = extract_section_info(chunk)
+                meta = extract_section_info(chunk_item)
                 meta["chunk_index"] = i
                 meta["url"] = url
                 meta["source"] = urlparse(url).netloc
@@ -337,13 +347,13 @@ async def smart_crawl_url(ctx: Context, url: str, max_depth: int = 3, max_concur
             md = doc['markdown']
             chunks = smart_chunk_markdown(md, chunk_size=chunk_size)
             
-            for i, chunk in enumerate(chunks):
+            for i, chunk_item in enumerate(chunks): # Renamed chunk to chunk_item
                 urls.append(source_url)
                 chunk_numbers.append(i)
-                contents.append(chunk)
+                contents.append(chunk_item)
                 
                 # Extract metadata
-                meta = extract_section_info(chunk)
+                meta = extract_section_info(chunk_item)
                 meta["chunk_index"] = i
                 meta["url"] = source_url
                 meta["source"] = urlparse(source_url).netloc
@@ -442,27 +452,27 @@ async def crawl_recursive_internal_links(crawler: AsyncWebCrawler, start_urls: L
 
     visited = set()
 
-    def normalize_url(url):
-        return urldefrag(url)[0]
+    def normalize_url(url_to_normalize): # Renamed url to url_to_normalize
+        return urldefrag(url_to_normalize)[0]
 
     current_urls = set([normalize_url(u) for u in start_urls])
     results_all = []
 
     for depth in range(max_depth):
-        urls_to_crawl = [normalize_url(url) for url in current_urls if normalize_url(url) not in visited]
+        urls_to_crawl = [normalize_url(u) for u in current_urls if normalize_url(u) not in visited] # Renamed url to u
         if not urls_to_crawl:
             break
 
         results = await crawler.arun_many(urls=urls_to_crawl, config=run_config, dispatcher=dispatcher)
         next_level_urls = set()
 
-        for result in results:
-            norm_url = normalize_url(result.url)
+        for result_item in results: # Renamed result to result_item
+            norm_url = normalize_url(result_item.url)
             visited.add(norm_url)
 
-            if result.success and result.markdown:
-                results_all.append({'url': result.url, 'markdown': result.markdown})
-                for link in result.links.get("internal", []):
+            if result_item.success and result_item.markdown:
+                results_all.append({'url': result_item.url, 'markdown': result_item.markdown})
+                for link in result_item.links.get("internal", []):
                     next_url = normalize_url(link["href"])
                     if next_url not in visited:
                         next_level_urls.add(next_url)
@@ -485,10 +495,13 @@ async def get_available_sources(ctx: Context) -> str:
     Returns:
         JSON string with the list of available sources
     """
+    print("DEBUG: get_available_sources tool called.")
     try:
-        # Get the Supabase client from the context
+        print("DEBUG: Attempting to get Supabase client from context in get_available_sources.")
         supabase_client = ctx.request_context.lifespan_context.supabase_client
+        print("DEBUG: Supabase client obtained in get_available_sources.")
         
+        print("DEBUG: Executing Supabase query in get_available_sources...")
         # Use a direct query with the Supabase client
         # This could be more efficient with a direct Postgres query but
         # I don't want to require users to set a DB_URL environment variable as well
@@ -496,19 +509,24 @@ async def get_available_sources(ctx: Context) -> str:
             .select('metadata')\
             .not_.is_('metadata->>source', 'null')\
             .execute()
+        print("DEBUG: Supabase query executed in get_available_sources. Result data:", result.data is not None)
             
-        # Use a set to efficiently track unique sources
         unique_sources = set()
         
-        # Extract the source values from the result using a set for uniqueness
         if result.data:
-            for item in result.data:
-                source = item.get('metadata', {}).get('source')
-                if source:
-                    unique_sources.add(source)
-        
-        # Convert set to sorted list for consistent output
+            print(f"DEBUG: Processing {len(result.data)} items from Supabase in get_available_sources.")
+            for item_idx, item in enumerate(result.data):
+                if item_idx % 100 == 0: # Log progress every 100 items
+                    print(f"DEBUG: Processing item {item_idx} in get_available_sources...")
+                source_val = item.get('metadata', {}).get('source') # Renamed source to source_val
+                if source_val:
+                    unique_sources.add(source_val)
+            print("DEBUG: Finished processing items in get_available_sources.")
+        else:
+            print("DEBUG: No data returned from Supabase query in get_available_sources.")
+            
         sources = sorted(list(unique_sources))
+        print(f"DEBUG: Found sources: {sources} in get_available_sources.")
         
         return json.dumps({
             "success": True,
@@ -516,6 +534,7 @@ async def get_available_sources(ctx: Context) -> str:
             "count": len(sources)
         }, indent=2)
     except Exception as e:
+        print(f"DEBUG: Exception in get_available_sources: {str(e)}")
         return json.dumps({
             "success": False,
             "error": str(e)
@@ -559,12 +578,12 @@ async def perform_rag_query(ctx: Context, query: str, source: str = None, match_
         
         # Format the results
         formatted_results = []
-        for result in results:
+        for result_item in results: # Renamed result to result_item
             formatted_results.append({
-                "url": result.get("url"),
-                "content": result.get("content"),
-                "metadata": result.get("metadata"),
-                "similarity": result.get("similarity")
+                "url": result_item.get("url"),
+                "content": result_item.get("content"),
+                "metadata": result_item.get("metadata"),
+                "similarity": result_item.get("similarity")
             })
         
         return json.dumps({
